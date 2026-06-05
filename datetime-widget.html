@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Date &amp; Time Widget</title>
+<style>
+  /* ============================================================
+     COLOR SCHEME — edit these to change the whole widget.
+     ============================================================ */
+  :root {
+    /* WCAG AA accessible warm palette. Contrast ratios vs white background:
+       all >= 4.5:1, the minimum for normal-size text. Hierarchy comes from
+       lightness gradation + font weight/spacing, not from ultra-faint color. */
+    --bg:            #ffffff;   /* page / widget background                   */
+    --ink:          #6f5645;   /* main accent: date, today circle    6.8:1   */
+    --ink-soft:     #7d6453;   /* secondary text: weekday, month     5.5:1   */
+    --grid:         #806752;   /* calendar day numbers               5.3:1   */
+    --grid-faint:   #8a6f5c;   /* weekday header letters (S M T..)   4.7:1   */
+    --today-text:   #ffffff;   /* number inside today circle    6.8:1 on ink */
+    --font:         "Helvetica Neue", Arial, sans-serif;
+  }
+
+  /* A few ready-made palettes — copy one into :root to use it.
+     ----------------------------------------------------------------
+     SAGE GREEN
+       --ink:#7e9181; --ink-soft:#9bab9d; --grid:#b7c4b9; --grid-faint:#cdd6ce;
+     DUSTY BLUE
+       --ink:#7a8ba6; --ink-soft:#9aa8be; --grid:#b6c0d1; --grid-faint:#cfd6e1;
+     CHARCOAL (dark text on white)
+       --ink:#3f3f46; --ink-soft:#71717a; --grid:#a1a1aa; --grid-faint:#d4d4d8;
+     DARK MODE (set --bg:#1c1c1e; --today-text:#1c1c1e;)
+       --ink:#d8c3b3; --ink-soft:#a8978b; --grid:#8a7d72; --grid-faint:#5c5249;
+     ---------------------------------------------------------------- */
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    font-family: var(--font);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .widget {
+    height: 100%;
+    min-height: 240px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8%;
+    padding: 24px 28px;
+    flex-wrap: wrap;
+  }
+
+  /* ---------- Left: date / weekday / time ---------- */
+  .left {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    line-height: 1;
+  }
+  .date {
+    font-size: clamp(48px, 12vw, 88px);
+    font-style: italic;
+    font-weight: 300;
+    letter-spacing: -1px;
+    color: var(--ink);
+  }
+  .weekday {
+    margin-top: 14px;
+    font-size: clamp(18px, 4vw, 26px);
+    font-style: italic;
+    font-weight: 300;
+    letter-spacing: 1px;
+    color: var(--ink-soft);
+  }
+  .time {
+    margin-top: 10px;
+    font-size: clamp(20px, 5vw, 30px);
+    font-weight: 300;
+    letter-spacing: 1px;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .time .ampm {
+    font-size: 0.55em;
+    margin-left: 4px;
+    color: var(--ink-soft);
+  }
+
+  /* ---------- Right: calendar ---------- */
+  .right { min-width: 240px; }
+  .month {
+    font-size: clamp(20px, 4.5vw, 26px);
+    font-style: italic;
+    font-weight: 400;
+    letter-spacing: 2px;
+    color: var(--ink-soft);
+    margin-bottom: 12px;
+  }
+  table.cal {
+    border-collapse: collapse;
+    width: 100%;
+  }
+  table.cal th,
+  table.cal td {
+    width: 14.28%;
+    text-align: center;
+    padding: 4px 0;
+    font-size: clamp(13px, 2.6vw, 17px);
+    font-style: italic;
+    font-weight: 300;
+  }
+  table.cal th { color: var(--grid-faint); }
+  table.cal td { color: var(--grid); }
+  table.cal td.today span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.7em;
+    height: 1.7em;
+    border-radius: 50%;
+    background: var(--ink);
+    color: var(--today-text);
+  }
+
+  @media (max-width: 460px) {
+    .widget { flex-direction: column; gap: 24px; }
+    .left { align-items: center; text-align: center; }
+  }
+</style>
+</head>
+<body>
+  <div class="widget">
+    <div class="left">
+      <div class="date" id="date">Jul.8</div>
+      <div class="weekday" id="weekday">FRI</div>
+      <div class="time" id="time">12:00</div>
+    </div>
+    <div class="right">
+      <div class="month" id="month">JULY</div>
+      <table class="cal">
+        <thead>
+          <tr><th>S</th><th>M</th><th>T</th><th>W</th><th>T</th><th>F</th><th>S</th></tr>
+        </thead>
+        <tbody id="calBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+  // Set to true for 24-hour time, false for 12-hour with AM/PM.
+  var USE_24_HOUR = false;
+
+  var MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var MONTHS_LONG  = ["JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE","JULY","AUGUST","SEPTEMBER","OCTOBER","NOVEMBER","DECEMBER"];
+  var WEEKDAYS     = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
+
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+
+  function renderDate() {
+    var now = new Date();
+    var d = now.getDate();
+    var m = now.getMonth();
+    var y = now.getFullYear();
+
+    document.getElementById("date").textContent = MONTHS_SHORT[m] + "." + d;
+    document.getElementById("weekday").textContent = WEEKDAYS[now.getDay()];
+    document.getElementById("month").textContent = MONTHS_LONG[m];
+
+    // Build calendar grid for the current month.
+    var firstDay = new Date(y, m, 1).getDay();          // 0 = Sunday
+    var daysInMonth = new Date(y, m + 1, 0).getDate();
+    var body = document.getElementById("calBody");
+    body.innerHTML = "";
+
+    var cell = 0;
+    var row = document.createElement("tr");
+    // leading blanks
+    for (var i = 0; i < firstDay; i++) {
+      row.appendChild(document.createElement("td"));
+      cell++;
+    }
+    for (var day = 1; day <= daysInMonth; day++) {
+      if (cell % 7 === 0 && cell !== 0) {
+        body.appendChild(row);
+        row = document.createElement("tr");
+      }
+      var td = document.createElement("td");
+      if (day === d) {
+        td.className = "today";
+        var span = document.createElement("span");
+        span.textContent = day;
+        td.appendChild(span);
+      } else {
+        td.textContent = day;
+      }
+      row.appendChild(td);
+      cell++;
+    }
+    body.appendChild(row);
+  }
+
+  function renderTime() {
+    var now = new Date();
+    var h = now.getHours();
+    var min = pad(now.getMinutes());
+    var el = document.getElementById("time");
+
+    if (USE_24_HOUR) {
+      el.textContent = pad(h) + ":" + min;
+    } else {
+      var ampm = h >= 12 ? "PM" : "AM";
+      var h12 = h % 12;
+      if (h12 === 0) h12 = 12;
+      el.innerHTML = h12 + ":" + min + '<span class="ampm">' + ampm + "</span>";
+    }
+  }
+
+  function tick() {
+    renderTime();
+    // Re-render the date/calendar only when the day might have changed.
+    var now = new Date();
+    if (!tick.lastDay || tick.lastDay !== now.getDate()) {
+      renderDate();
+      tick.lastDay = now.getDate();
+    }
+  }
+
+  tick();
+  setInterval(tick, 1000);
+</script>
+</body>
+</html>
